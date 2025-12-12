@@ -55,6 +55,10 @@ echo.
 echo Starting a multiconfig run of CoreCycler...
 
 
+REM Change directory to the file location, just to make sure
+pushd %~dp0
+
+
 REM Prepare the variable for the last config file
 SET "LASTCONFIG="
 FOR /F %%G IN ('dir /b multiconfig-*.ini') DO SET "LASTCONFIG=%%G"

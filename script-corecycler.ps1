@@ -2,7 +2,7 @@
 .AUTHOR
     sp00n
 .VERSION
-    0.11.0.0alpha5
+    0.11.0.0
 .DESCRIPTION
     Sets the affinity of the selected stress test program process to only one
     core and cycles through all the cores which allows to test the stability of
@@ -23,7 +23,7 @@ param(
 
 
 # Our current version
-$version = '0.11.0.0alpha5'
+$version = '0.11.0.0'
 
 
 # This defines the strict mode
@@ -493,6 +493,7 @@ FFTSize = Huge
 #
 # Test Mode Name       Automatic Selection For             Required Instruction Set
 # --------------       -----------------------             ------------------------
+# "00-x86"             Legacy x86                          86/IA-32 since Pentium (BSWAP, CMPXCHG, CPUID, RDTSC, possibly others...)
 # "04-P4P"             Intel Pentium 4 Prescott            SSE, SSE2, SSE3
 # "05-A64 ~ Kasumi"    AMD Athlon 64                       x64, SSE, SSE2, SSE3
 # "08-NHM ~ Ushio"     Intel Nehalem                       x64, SSE, SSE2, SSE3, SSSE3, SSE4.1
@@ -518,7 +519,7 @@ FFTSize = Huge
 # It will either outright crash or simply not start
 #
 # A quick overview:
-# "04-P4P" produces the least amount of heat and should therefore produce the highest boost clock on most tests
+# "00-x86" produces the least amount of heat and should therefore produce the highest boost clock on most tests
 # "14-BDW ~ Kurumi" is the test that y-cruncher itself would default to if you run it on an Intel CPU up to at least 14th gen
 # "19-ZN2 ~ Kagari" is the test that y-cruncher itself would default to for Zen 2/3 (Ryzen 3000/5000)
 # "22-ZN4 ~ Kizuna" is the test that y-cruncher itself would default to for Zen 4 (Ryzen 7000) and uses AVX512 instructions
@@ -531,20 +532,10 @@ FFTSize = Huge
 # is the better test for AVX/AVX2 loads on Intel CPUs. At least they share the same instruction sets, so you might need to check for yourself
 #
 #
-# When using the old y-cruncher version ("YCRUNCHER_OLD" selected as the stress test), there's an additional test mode you can use:
+# When using the old y-cruncher version ("YCRUNCHER_OLD" selected as the stress test),  the "12-BD2 ~ Miyu" test mode is named "11-BD1 ~ Miyu" instead
 #
-# Test Mode Name       Automatic Selection For       Required Instruction Set
-# --------------       -----------------------       ------------------------
-# "00-x86"             Legacy x86                    86/IA-32 since Pentium (BSWAP, CMPXCHG, CPUID, RDTSC, possibly others...)
-#
-# It is not available anymore in the recent version of y-cruncher, which is now the default one ("YCRUNCHER"), so if you want to use a test
-# with the least used instruction sets for low loads, you would need to switch to "YCRUNCHER_OLD" as the stress test
-# Also note that if you use "YCRUNCHER_OLD", you will also need to adapt the "tests" setting, as the old version uses different names
-#
-# Furthermore the "12-BD2 ~ Miyu" test mode is named "11-BD1 ~ Miyu" in "YCRUNCHER_OLD"
-#
-# Default: 04-P4P
-mode = 04-P4P
+# Default: 00-x86
+mode = 00-x86
 
 
 # Set the test algorithms to run for y-cruncher
@@ -553,19 +544,17 @@ mode = 04-P4P
 # ---     ---------                     ---------        ------------
 # BKT     Basecase + Karatsuba          Scalar Integer   -|--------
 # BBP     BBP Digit Extraction          AVX2 Float       |---------
-# SFT     Small In-Cache FFTv3          AVX2 Float       -|--------
 # SFTv4   Small In-Cache FFTv4          AVX2 Float       -|--------
 # SNT     Small In-Cache N63            AVX2 Integer     --|-------
 # SVT     Small In-Cache VT3            AVX2 Float       --|-------
-# FFT     Fast Fourier Transform (v3)   AVX2 Float       ---------|
 # FFTv4   Fast Fourier Transform (v4)   AVX2 Float       ---------|
 # N63     Classic NTT (v2)              AVX2 Integer     ---|------
 # VT3     Vector Transform (v3)         AVX2 Float       ----|-----
 
 #
 # Use a comma separated list
-# Default: BKT, BBP, SFT, SFTv4, SNT, SVT, FFT, FFTv4, N63, VT3
-tests = BKT, BBP, SFT, SFTv4, SNT, SVT, FFT, FFTv4, N63, VT3
+# Default: BKT, BBP, SFTv4, SNT, SVT, FFTv4, N63, VT3
+tests = BKT, BBP, SFTv4, SNT, SVT, FFTv4, N63, VT3
 
 
 # Set the test algorithms to run for the "old" version of y-cruncher ("YCRUNCHER_OLD" selected as the stress test)
@@ -1237,6 +1226,7 @@ $stressTestPrograms = @{
         'windowBehaviour'     = 6
         'testModes'           = @(
             'auto'
+            '00-x86'
             '04-P4P'
             '05-A64 ~ Kasumi'
             '08-NHM ~ Ushio'
@@ -1257,8 +1247,8 @@ $stressTestPrograms = @{
             # This setting is designed for Ryzen 9000 (Zen 5) CPUs and uses AVX-512
             '24-ZN5 ~ Komari'
         )
-        'availableTests'      = @('BKT', 'BBP', 'SFT', 'SFTv4', 'SNT', 'SVT', 'FFT', 'FFTv4', 'N63', 'VT3')
-        'defaultTests'        = @('BKT', 'BBP', 'SFT', 'SFTv4', 'SNT', 'SVT', 'FFT', 'FFTv4', 'N63', 'VT3')
+        'availableTests'      = @('BKT', 'BBP', 'SFTv4', 'SNT', 'SVT', 'FFTv4', 'N63', 'VT3')
+        'defaultTests'        = @('BKT', 'BBP', 'SFTv4', 'SNT', 'SVT', 'FFTv4', 'N63', 'VT3')
         'windowNames'         = @(
             '' # Depends on the selected modeYCruncher
         )
@@ -2549,6 +2539,49 @@ function Test-IsDotNetInstalled {
     }
 
     return $found
+}
+
+
+
+<#
+.DESCRIPTION
+    Check if the PawnIO is installed
+.OUTPUTS
+    [Bool]
+#>
+function Test-IsPawnIoInstalled {
+    $hasMinVersion = $false
+
+    $registryKey = 'HKLM:\\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO'
+    $displayVersionObj = Get-ItemProperty -Path $registryKey -Name DisplayVersion -ErrorAction Ignore
+
+    if (!$displayVersionObj -or !($displayVersionObj | Get-Member DisplayVersion)) {
+        return $false
+    }
+
+    $displayVersion = $displayVersionObj.DisplayVersion
+
+    if (!$displayVersion) {
+        return $false
+    }
+
+
+    # We need at least version 2.0.1 for the Ryzen SMU support
+    $versionArr = $displayVersion -Split '\.'
+
+    if ($versionArr[0] -Match '^[\d\.]+$' -and $versionArr[1] -Match '^[\d\.]+$') {
+        $mainVersion  = [Int] $versionArr[0]
+        $minorVersion = [Int] $versionArr[1]
+        $patchVersion = [Int] $versionArr[2]
+        # $buildVersion = [Int] $versionArr[3]
+    }
+
+    if ($mainVersion -ge 2 -and $minorVersion -ge 0 -and $patchVersion -ge 1) {
+        $hasMinVersion = $true
+    }
+
+
+    return $hasMinVersion
 }
 
 
@@ -4948,20 +4981,6 @@ function Get-Settings {
 
     foreach ($mode in $modesArray) {
         if (!($Script:stressTestPrograms[$settings.General.stressTestProgram]['testModes'] -contains $mode)) {
-            # Add a special error message if trying to run 00-x86 for the newer y-cruncher versions
-            if (!$isYCruncherOld -and $mode.ToUpperInvariant() -eq '00-X86') {
-                Write-ColorText('FATAL ERROR: Invalid "mode" setting detected!') Red
-                Write-ColorText('Trying to run "00-x86", but y-cruncher doesn''t support this anymore!') Red
-                Write-ColorText('To be able to use "00-x86", you will need to select "YCRUNCHER_OLD" as the stress test.') Red
-                Write-ColorText('The newer versions of y-cruncher do not support this mode anymore.') Red
-                Write-ColorText('The new minimum "mode" is now "04-P4P" instead.') Red
-                Write-Text('')
-                Write-ColorText('You will also need to adjust the "tests" setting accordingly, as these have changed as well.') Red
-                Write-ColorText('See the comments in the config file for a more detailed explanation.') Red
-                Exit-WithFatalError
-            }
-
-            # The regular error message
             Exit-WithFatalError -text ('The selected test mode "' + $mode + '" is not available for ' + $stressTestPrograms[$settings.General.stressTestProgram]['displayName'] + '!')
         }
     }
@@ -5140,6 +5159,25 @@ function Initialize-AutomaticTestMode {
     else {
         Write-DebugText('We have admin rights, proceeding')
     }
+
+
+    # We need PawnIO installed for Ryzen processors
+    # Intel still uses WinRing0 for now
+    if (!$isIntelProcessor) {
+        if (!(Test-IsPawnIoInstalled)) {
+            Write-Host('')
+            Write-Host('FATAL ERROR: PawnIO could not be found on the system!') -ForegroundColor Red
+            Write-Host('')
+            Write-Host('The automatic voltage adjustment requires PawnIO to be able to set the Curve Optimizer values,') -ForegroundColor Yellow
+            Write-Host('however it was not found on your system!') -ForegroundColor Yellow
+            Write-Host('')
+            Write-Host('You can download PawnIO here:') -ForegroundColor Yellow
+            Write-Host('https://pawnio.eu/') -ForegroundColor Cyan
+
+            Exit-WithFatalError
+        }
+    }
+
 
 
     # This is the array for the starting voltage values
@@ -10092,7 +10130,7 @@ function Test-StressTestProgrammIsRunning {
         Write-ColorText('      too low voltage or maybe due to clock stretching.') Cyan
         Write-ColorText('      It might also be an issue with the Windows thread scheduler, so not necessarily a CPU instability.') Cyan
         Write-ColorText('      Try to see if the error resolves when you use less undervolting, otherwise you can also disable') Cyan
-        Write-ColorText('      this check in the config.ini by setting "disableCpuUtilizationCheck = 0" in the [Debug] section.') Cyan
+        Write-ColorText('      this check in the config.ini by setting "disableCpuUtilizationCheck = 1" in the [Debug] section.') Cyan
     }
 
 
