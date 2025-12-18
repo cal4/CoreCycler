@@ -2,7 +2,7 @@
 .AUTHOR
     sp00n
 .VERSION
-    0.11.0.0
+    0.11.0.1
 .DESCRIPTION
     Sets the affinity of the selected stress test program process to only one
     core and cycles through all the cores which allows to test the stability of
@@ -23,7 +23,7 @@ param(
 
 
 # Our current version
-$version = '0.11.0.0'
+$version = '0.11.0.1'
 
 
 # This defines the strict mode
@@ -2436,7 +2436,7 @@ function Test-IsVisualCInstalled {
         foreach ($entry in $registryEntries) {
             $displayName = $entry.GetValue('DisplayName')
 
-            if ($displayName -match '^Microsoft Visual C\+\+\D*(?<Year>(\d|-){4,9}).*(Redistributable|Minimum).*') {
+            if ($displayName -Match '^Microsoft Visual C\+\+\D*(?<Year>(\d|-){4,9}).*(Redistributable|Minimum).*') {
                 $versionString = $entry.GetValue('DisplayVersion')
                 $mainVersion = [Int] $entry.GetValue('VersionMajor')
                 $subVersion = [Int] $entry.GetValue('VersionMinor')
@@ -3808,15 +3808,15 @@ function Start-UpdateCheckBackgroundJob {
 
 
         # Get the current version int value
-        $null = $currentVersionString -Match '(?-i)(?<major>\d+)\.(?<minor>\d+)\.(?<revision>\d+)\.(?<build>\d+)(?<string>[aA-zZ0-9_\.\-]*)'
+        $hasMatched = $currentVersionString -Match '(?-i)(?<major>\d+)\.(?<minor>\d+)\.(?<revision>\d+)\.(?<build>\d+)(?<string>[aA-zZ0-9_\.\-]*)'
 
         Write-DebugText('The current version string:   ' + $currentVersionString)
 
-        $currentVersion['major']    = $(if ($Matches['major'])    { $Matches['major'] }    else { 0 })
-        $currentVersion['minor']    = $(if ($Matches['minor'])    { $Matches['minor'] }    else { 0 })
-        $currentVersion['revision'] = $(if ($Matches['revision']) { $Matches['revision'] } else { 0 })
-        $currentVersion['build']    = $(if ($Matches['build'])    { $Matches['build'] }    else { 0 })
-        $currentVersion['string']   = $(if ($Matches['string'])   { -1 }                   else { 0 })  # If there's a string behind the version number, it's not a final version
+        $currentVersion['major']    = $(if ($hasMatched -and $Matches['major'])    { $Matches['major'] }    else { 0 })
+        $currentVersion['minor']    = $(if ($hasMatched -and $Matches['minor'])    { $Matches['minor'] }    else { 0 })
+        $currentVersion['revision'] = $(if ($hasMatched -and $Matches['revision']) { $Matches['revision'] } else { 0 })
+        $currentVersion['build']    = $(if ($hasMatched -and $Matches['build'])    { $Matches['build'] }    else { 0 })
+        $currentVersion['string']   = $(if ($hasMatched -and $Matches['string'])   { -1 }                   else { 0 })  # If there's a string behind the version number, it's not a final version
 
         # If a string is present in the version number, reduce the int value by one to match the (assumed) previous version
         # E.g. 0.9.5.3alpha1 would become 9005002, which makes it equal to 0.9.5.2
@@ -4008,9 +4008,9 @@ function Start-UpdateCheckBackgroundJob {
 
             # But is it a real final release?
             # A final release shouldn't have a string attached to it, so exclude it
-            $null = $release.tag_name -Match '(?-i)(?<major>\d+)\.(?<minor>\d+)\.(?<revision>\d+)\.(?<build>\d+)(?<string>[aA-zZ0-9_\.\-]*)'
+            $hasMatched = $release.tag_name -Match '(?-i)(?<major>\d+)\.(?<minor>\d+)\.(?<revision>\d+)\.(?<build>\d+)(?<string>[aA-zZ0-9_\.\-]*)'
 
-            if ($Matches['string']) {
+            if ($hasMatched -and $Matches['string']) {
                 continue
             }
 
@@ -4025,12 +4025,12 @@ function Start-UpdateCheckBackgroundJob {
 
         $lastReleaseString = $lastReleaseEntry.tag_name
 
-        $null = $lastReleaseString -Match '(?-i)(?<major>\d+)\.(?<minor>\d+)\.(?<revision>\d+)\.(?<build>\d+)'
+        $hasMatched = $lastReleaseString -Match '(?-i)(?<major>\d+)\.(?<minor>\d+)\.(?<revision>\d+)\.(?<build>\d+)'
 
-        $lastRelease['major']    = $(if ($Matches['major'])    { $Matches['major'] }    else { 0 })
-        $lastRelease['minor']    = $(if ($Matches['minor'])    { $Matches['minor'] }    else { 0 })
-        $lastRelease['revision'] = $(if ($Matches['revision']) { $Matches['revision'] } else { 0 })
-        $lastRelease['build']    = $(if ($Matches['build'])    { $Matches['build'] }    else { 0 })
+        $lastRelease['major']    = $(if ($hasMatched -and $Matches['major'])    { $Matches['major'] }    else { 0 })
+        $lastRelease['minor']    = $(if ($hasMatched -and $Matches['minor'])    { $Matches['minor'] }    else { 0 })
+        $lastRelease['revision'] = $(if ($hasMatched -and $Matches['revision']) { $Matches['revision'] } else { 0 })
+        $lastRelease['build']    = $(if ($hasMatched -and $Matches['build'])    { $Matches['build'] }    else { 0 })
 
         [UInt64] $lastReleaseInt = [UInt64] $lastRelease['major'] * 1000000000000 + [UInt64] $lastRelease['minor'] * 1000000000 + [UInt64] $lastRelease['revision'] * 1000000 + [UInt64] $lastRelease['build'] * 1000
 
@@ -5258,7 +5258,7 @@ function Initialize-AutomaticTestMode {
             Exit-WithFatalError -text 'Selected "Minimum" for the voltage start values, but this setting is unsupported on an Intel processor!'
         }
         else {
-            $minCoValue = $(if ($processor.Name -match '[7-9]\d{3}') { -50 } else { -30 } )
+            $minCoValue = $(if ($processor.Name -Match '[7-9]\d{3}') { -50 } else { -30 } )
             $voltageStartValuesArray = @($minCoValue) * $numPhysCores
         }
     }
@@ -6664,7 +6664,7 @@ function Get-StressTestProcessInformation {
                         ($_ | Get-Member TotalProcessorTime) -and
                         $null -ne $_.TotalProcessorTime -and
                         $_.TotalProcessorTime.Ticks -ne 0 -and
-                        $_.ThreadState -match '^Running$|^Ready$'
+                        $_.ThreadState -Match '^Running$|^Ready$'
                     } | Sort-Object -Property Id
                 } -ArgumentList $thisStressTestProcess.Id | Wait-Job | Receive-Job
 
@@ -6748,7 +6748,7 @@ function Get-StressTestProcessInformation {
                         ($_ | Get-Member TotalProcessorTime) -and
                         $null -ne $_.TotalProcessorTime -and
                         $_.TotalProcessorTime.Ticks -ne 0 -and
-                        $_.ThreadState -match '^Running$|^Ready$'
+                        $_.ThreadState -Match '^Running$|^Ready$'
                     }
                 )
 
@@ -11445,9 +11445,9 @@ function Get-ProcessorCoresInformation {
 
     $apicArr | ForEach-Object {
         # Logical CPU 12 - Physical Core 6 - APIC ID 16 - SMT On
-        $null = $_ -Match 'Logical CPU (?<CPU>\d+) \- Physical Core (?<Core>\d+) \- APIC ID (?<APICID>\d+) - SMT (?<SMT>On|Off)'
+        $hasMatched = $_ -Match 'Logical CPU (?<CPU>\d+) \- Physical Core (?<Core>\d+) \- APIC ID (?<APICID>\d+) - SMT (?<SMT>On|Off)'
 
-        if ($Matches['CPU'] -and $Matches['Core'] -and $Matches['APICID'] -and $Matches['SMT']) {
+        if ($hasMatched -and $Matches['CPU'] -and $Matches['Core'] -and $Matches['APICID'] -and $Matches['SMT']) {
             $apicId = [Int] $Matches['APICID']
             $cpuId  = [Int] $Matches['CPU']
             $core   = [Int] $Matches['Core']
@@ -12223,7 +12223,7 @@ try {
         $canUseFlushToDisk = !!(Get-Volume $scriptDriveLetter -ErrorAction Ignore)
 
         # Also check if the drive "letter" is an actual drive, and not e.g. a network share
-        $canUseFlushToDisk = ($canUseFlushToDisk = $scriptDriveLetter -and $scriptDriveLetter -match '[a-z]')
+        $canUseFlushToDisk = ($canUseFlushToDisk = $scriptDriveLetter -and $scriptDriveLetter -Match '[a-z]')
 
         Write-DebugText("Can we use the flush to disk functionality: " + $canUseFlushToDisk)
     }
