@@ -2,7 +2,7 @@
 .AUTHOR
     sp00n
 .VERSION
-    0.11.0.2
+    0.11.0.3
 .DESCRIPTION
     Sets the affinity of the selected stress test program process to only one
     core and cycles through all the cores which allows to test the stability of
@@ -23,7 +23,7 @@ param(
 
 
 # Our current version
-$version = '0.11.0.2'
+$version = '0.11.0.3'
 
 
 # This defines the strict mode
@@ -2655,18 +2655,25 @@ function Test-IsDotNetInstalled {
 function Test-IsPawnIoInstalled {
     $hasMinVersion = $false
 
+    Write-DebugText('Checking for PawnIO')
+
     $registryKey = 'HKLM:\\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO'
     $displayVersionObj = Get-ItemProperty -Path $registryKey -Name DisplayVersion -ErrorAction Ignore
 
+
     if (!$displayVersionObj -or !($displayVersionObj | Get-Member DisplayVersion)) {
+        Write-DebugText('DisplayVersion object not found!')
         return $false
     }
 
     $displayVersion = $displayVersionObj.DisplayVersion
 
     if (!$displayVersion) {
+        Write-DebugText('DisplayVersion entry not found!')
         return $false
     }
+
+    Write-DebugText('DisplayVersion: ' + $displayVersion)
 
 
     # We need at least version 2.0.1 for the Ryzen SMU support
@@ -2679,10 +2686,13 @@ function Test-IsPawnIoInstalled {
         # $buildVersion = [Int] $versionArr[3]
     }
 
-    if ($mainVersion -ge 2 -and $minorVersion -ge 0 -and $patchVersion -ge 1) {
-        $hasMinVersion = $true
+    # Version 2.0.1 and above
+    if ($mainVersion -ge 2 -and (($minorVersion -eq 0 -and $patchVersion -ge 1) -or $minorVersion -ge 1)) {
+        return $true
     }
 
+
+    Write-DebugText('PawnIO seems to be installed, but the version is too old')
 
     return $hasMinVersion
 }
@@ -5562,6 +5572,7 @@ function Get-CurveOptimizerValues {
 
             $stdOut = $getCoValuesProcess.StandardOutput.ReadToEnd()
             $stdErr = $getCoValuesProcess.StandardError.ReadToEnd()
+            $errMsg = $null
 
             if (!$getCoValuesProcess.WaitForExit(3000)) {
                 $getCoValuesProcess.Kill()
@@ -5579,14 +5590,14 @@ function Get-CurveOptimizerValues {
 
             if ($exitCode -ne 0) {
                 if ($stdErr) {
-                    $msg += [Environment]::NewLine + $stdErr
+                    $errMsg += [Environment]::NewLine + $stdErr
                 }
 
                 if ($stdOut) {
-                    $msg += [Environment]::NewLine + $stdOut
+                    $errMsg += [Environment]::NewLine + $stdOut
                 }
 
-                Select-ErrorHandling ('Program terminated unexpectedly. Exit Code: ' + $exitCode)
+                Select-ErrorHandling ('Program terminated unexpectedly. Exit Code: ' + $exitCode + [Environment]::NewLine + 'Error Message:' + $errMsg)
             }
 
 
