@@ -2,7 +2,7 @@
 .AUTHOR
     sp00n
 .VERSION
-    0.11.0.1
+    0.11.0.2
 .DESCRIPTION
     Sets the affinity of the selected stress test program process to only one
     core and cycles through all the cores which allows to test the stability of
@@ -23,7 +23,7 @@ param(
 
 
 # Our current version
-$version = '0.11.0.1'
+$version = '0.11.0.2'
 
 
 # This defines the strict mode
@@ -2032,8 +2032,46 @@ $RegistryFlusherDefinition = @'
 '@
 
 
+
+# Defintion to use the Restart Manager to find out what process is locking a file
+$RestartManagerDefinition = @'
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    public static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
+
+    [DllImport("rstrtmgr.dll")]
+    public static extern int RmEndSession(uint pSessionHandle);
+
+    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+    public static extern int RmRegisterResources(uint pSessionHandle, uint nFiles, string[] rgsFilenames, uint nApplications, IntPtr rgApplications, uint nServices, IntPtr rgsServiceNames);
+
+    [DllImport("rstrtmgr.dll")]
+    public static extern int RmGetList(uint pSessionHandle, out uint pnProcInfoNeeded, ref uint pnProcInfo, [In, Out] RM_PROCESS_INFO[] rgAffectedApps, out uint lpdwRebootReasons);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RM_UNIQUE_PROCESS {
+        public int dwProcessId;
+        public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct RM_PROCESS_INFO {
+        public RM_UNIQUE_PROCESS Process;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string strServiceShortName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string strAppName;
+        public uint AppType;
+        public uint AppStatus;
+        public uint TSSessionId;
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool bRestartable;
+    }
+'@
+
+
 # Make the external code definitions available to PowerShell
-Add-Type -ErrorAction Stop -Name PowerUtil -Namespace Windows -MemberDefinition $PowerUtilDefinition
+Add-Type -ErrorAction Stop -Namespace 'Windows' -Name 'PowerUtil' -MemberDefinition $PowerUtilDefinition
+Add-Type -ErrorAction Stop -Namespace 'Windows' -Name 'RestartManager' -MemberDefinition $RestartManagerDefinition
 Add-Type -ErrorAction Stop -TypeDefinition $ShutdownBlockDefinition
 Add-Type -ErrorAction Stop -TypeDefinition $GetWindowsDefinition
 Add-Type -ErrorAction Stop -TypeDefinition $WindowMessageDefinition
@@ -2085,17 +2123,54 @@ function Write-LogEntry {
         return
     }
 
-    # The second parameter defines if to append ($true) or overwrite ($false)
-    $stream = [System.IO.StreamWriter]::new($logFileFullPath, $true, ([System.Text.Utf8Encoding]::new()))
 
-    if ($NoNewline.IsPresent) {
-        $stream.Write($string)
-    }
-    else {
-        $stream.WriteLine($string)
+    for ($numTry = 1; $numTry -le 3; $numTry++ ) {
+        $Error.Clear()
+
+        try {
+            # The second parameter defines if to append ($true) or overwrite ($false)
+            $stream = [System.IO.StreamWriter]::new($logFileFullPath, $true, ([System.Text.Utf8Encoding]::new()))
+
+            if ($NoNewline.IsPresent) {
+                $stream.Write($string)
+            }
+            else {
+                $stream.WriteLine($string)
+            }
+
+            $stream.Close()
+        }
+        catch {
+            Write-DebugText('Couldn''t write log file on try ' + $numTry) -NoLogEntry
+        }
+
+        if (!$Error) {
+            break
+        }
+
+        Start-Sleep -Milliseconds 250
     }
 
-    $stream.Close()
+
+    # There was an error while trying to write to the log file
+    # Maybe some other process has locked the file
+    if ($Error) {
+        Write-ColorText('FATAL ERROR: Could not write the log file, aborting!') -foregroundColor Red -NoLogEntry
+        Write-ColorText('     Reason: ' + $Error.Exception.Message) -foregroundColor Red -NoLogEntry
+
+        if ($Error.FullyQualifiedErrorId -eq 'IOException') {
+            Write-Text('') -NoLogEntry
+            Write-ColorText('Another process may have locked the file, trying to get the locking process') -foregroundColor Yellow -NoLogEntry
+
+            $lockingProcesses = Get-FileLock -Path $logFileFullPath
+
+            Write-ColorText($lockingProcesses | Out-String) -foregroundColor Yellow -NoLogEntry
+        }
+
+        # Exit-WithFatalError
+        $Script:exitCode = 999
+        exit $Script:exitCode
+    }
 }
 
 
@@ -2107,13 +2182,16 @@ function Write-LogEntry {
     [String] The text to output
 .PARAMETER NoNewline
     [Switch] (optional) If set, will not end the line after the text
+.PARAMETER NoLogEntry
+    [Switch] (optional) If set, will not add to the log file
 .OUTPUTS
     [Void]
 #>
 function Write-Text {
     param(
         [Parameter(Mandatory=$true)] $text,
-        [Parameter(Mandatory=$false)] [Switch] $NoNewline
+        [Parameter(Mandatory=$false)] [Switch] $NoNewline,
+        [Parameter(Mandatory=$false)] [Switch] $NoLogEntry
     )
 
     $paramsLog = @{
@@ -2127,7 +2205,10 @@ function Write-Text {
     }
 
     Write-Host @paramsText
-    Write-LogEntry @paramsLog
+
+    if (-not $NoLogEntry.IsPresent) {
+        Write-LogEntry @paramsLog
+    }
 }
 
 
@@ -2137,12 +2218,15 @@ function Write-Text {
     Write an error message to the screen and to the log file
 .PARAMETER errorArray
     [Array] An array with the text entries to output
+.PARAMETER NoLogEntry
+    [Switch] (optional) If set, will not add to the log file
 .OUTPUTS
     [Void]
 #>
 function Write-ErrorText {
     param(
-        [Parameter(Mandatory=$true)] $errorArray
+        [Parameter(Mandatory=$true)] $errorArray,
+        [Parameter(Mandatory=$false)] [Switch] $NoLogEntry
     )
 
     foreach ($entry in $errorArray) {
@@ -2154,7 +2238,10 @@ function Write-ErrorText {
         $string = $lines | Out-String
 
         Write-Host $string -ForegroundColor Red
-        Write-LogEntry $string
+
+        if (-not $NoLogEntry.IsPresent) {
+            Write-LogEntry $string
+        }
     }
 }
 
@@ -2171,6 +2258,8 @@ function Write-ErrorText {
     [String] (optional) The background color
 .PARAMETER NoNewline
     [Switch] (optional) If set, will not end the line after the text
+.PARAMETER NoLogEntry
+    [Switch] (optional) If set, will not add to the log file
 .OUTPUTS
     [Void]
 #>
@@ -2179,7 +2268,8 @@ function Write-ColorText {
         [Parameter(Mandatory=$true)] $text,
         [Parameter(Mandatory=$true)] $foregroundColor,
         [Parameter(Mandatory=$false)] $backgroundColor,
-        [Parameter(Mandatory=$false)] [Switch] $NoNewline
+        [Parameter(Mandatory=$false)] [Switch] $NoNewline,
+        [Parameter(Mandatory=$false)] [Switch] $NoLogEntry
     )
 
     $paramsLog = @{
@@ -2201,7 +2291,10 @@ function Write-ColorText {
     }
 
     Write-Host @paramsText
-    Write-LogEntry @paramsLog
+
+    if (-not $NoLogEntry.IsPresent) {
+        Write-LogEntry @paramsLog
+    }
 }
 
 
@@ -2214,6 +2307,8 @@ function Write-ColorText {
     [String] The text to output
 .PARAMETER NoNewline
     [Switch] (optional) If set, will not end the line after the text
+.PARAMETER NoLogEntry
+    [Switch] (optional) If set, will not add to the log file
 .PARAMETER SkipIndentation
     [Switch] (optional) If set, will not add indentation to the text. Best used in combination with -NoNewline
 .OUTPUTS
@@ -2223,6 +2318,7 @@ function Write-VerboseText {
     param(
         [Parameter(Mandatory=$true)] $text,
         [Parameter(Mandatory=$false)] [Switch] $NoNewline,
+        [Parameter(Mandatory=$false)] [Switch] $NoLogEntry,
         [Parameter(Mandatory=$false)] [Switch] $SkipIndentation
     )
 
@@ -2245,7 +2341,9 @@ function Write-VerboseText {
             Write-Host @paramsText
         }
 
-        Write-LogEntry @paramsLog
+        if (-not $NoLogEntry.IsPresent) {
+            Write-LogEntry @paramsLog
+        }
     }
 }
 
@@ -2259,6 +2357,8 @@ function Write-VerboseText {
     [String] The text to output
 .PARAMETER NoNewline
     [Switch] (optional) If set, will not end the line after the text
+.PARAMETER NoLogEntry
+    [Switch] (optional) If set, will not add to the log file
 .PARAMETER SkipIndentation
     [Switch] (optional) If set, will not add indentation to the text. Best used in combination with -NoNewline
 .OUTPUTS
@@ -2270,6 +2370,7 @@ function Write-DebugText {
     param(
         [Parameter(Mandatory=$true)] $text,
         [Parameter(Mandatory=$false)] [Switch] $NoNewline,
+        [Parameter(Mandatory=$false)] [Switch] $NoLogEntry,
         [Parameter(Mandatory=$false)] [Switch] $SkipIndentation
     )
 
@@ -2291,7 +2392,9 @@ function Write-DebugText {
             Write-Host @paramsText
         }
 
-        Write-LogEntry @paramsLog
+        if (-not $NoLogEntry.IsPresent) {
+            Write-LogEntry @paramsLog
+        }
     }
 }
 
@@ -2582,6 +2685,69 @@ function Test-IsPawnIoInstalled {
 
 
     return $hasMinVersion
+}
+
+
+
+<#
+.DESCRIPTION
+    Get the processes that are locking a file
+.PARAMETER Path
+    [String] The file to check
+.OUTPUTS
+    [Array] The processes currently locking the file
+#>
+function Get-FileLock {
+    param(
+        [Parameter(Mandatory=$true)][String] $Path
+    )
+
+    $lockingProcesses = [System.Collections.ArrayList]::new()
+
+    $filePath = Resolve-Path $Path
+    $handle = 0
+
+    # The Restart Manager requires a session
+    $SessionKey = 'CoreCycler-' + [Guid]::NewGuid().ToString()
+    [Void] [Windows.RestartManager]::RmStartSession([Ref] $handle, 0, $SessionKey)
+
+
+    try {
+        # Register the file resource
+        [Void] [Windows.RestartManager]::RmRegisterResources($handle, 1, @($Filepath), 0, [IntPtr]::Zero, 0, [IntPtr]::Zero)
+
+        $nProcInfoNeeded = 0
+        $nProcInfo = 0
+        $rebootReasons = 0
+
+        # First call to find out how many processes are locking the file
+        $null = [Windows.RestartManager]::RmGetList($handle, [Ref] $nProcInfoNeeded, [Ref] $nProcInfo, $null, [Ref] $rebootReasons)
+
+        if ($nProcInfoNeeded -gt 0) {
+            # Allocate the array and call again to get the actual data
+            $processes = New-Object Windows.RestartManager+RM_PROCESS_INFO[] $nProcInfoNeeded
+            $nProcInfo = $nProcInfoNeeded
+            [Void] [Windows.RestartManager]::RmGetList($handle, [Ref] $nProcInfoNeeded, [Ref] $nProcInfo, $processes, [Ref] $rebootReasons)
+
+            # Output the results
+            foreach ($process in $processes) {
+                $actualProcess = Get-Process -Id $process.Process.dwProcessId -ErrorAction SilentlyContinue
+
+                [Void] $lockingProcesses.Add(
+                    [PSCustomObject] @{
+                        ProcessName = if (![String]::IsNullOrWhiteSpace($process.strAppName)) { $process.strAppName } else { $actualProcess.Name }
+                        ID          = $process.Process.dwProcessId
+                        Path        = $actualProcess.Path
+                    }
+                )
+            }
+        }
+    }
+    finally {
+        [Void] [Windows.RestartManager]::RmEndSession($handle)
+    }
+
+    return $lockingProcesses
 }
 
 
